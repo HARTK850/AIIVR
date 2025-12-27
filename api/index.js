@@ -1,44 +1,33 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
 module.exports = async (req, res) => {
-  // חובה: הגדרת כותרת כדי שימות המשיח יבינו את העברית
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    const query = req.method === 'POST' ? req.body : req.query;
 
-  const query = req.method === 'POST' ? req.body : req.query;
+    // בימות המשיח, הקלט שנכנס מהקלדת טקסט נשמר ב-ApiEnterId
+    let userText = query.ApiEnterId;
 
-  // קליטת הטקסט שהוקלד (אנחנו נקרא למשתנה UserText)
-  let userText = query.UserText;
+    try {
+        // אם אין טקסט (כניסה ראשונה), נותנים הוראה להקליד
+        if (!userText) {
+            // הפקודה הזו אומרת למערכת לעבור למצב הקלדת טקסט
+            return res.status(200).send('type=input_type&input_type=text&t=נא הקלידו את שאלתכם וסיימו בסולמית&say_confirm=no');
+        }
 
-  console.log("Input received:", userText);
+        // שליחה לגמיני
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const result = await model.generateContent(userText);
+        const response = await result.response;
+        let textResponse = response.text()
+            .replace(/[=*&]/g, ' ') // ניקוי תווים אסורים
+            .replace(/\n/g, '. ');
 
-  try {
-    // 1. אם אין טקסט (כניסה ראשונה), נבקש להקליד
-    if (!userText) {
-      // הסיומת =UserText היא הקריטית! היא אומרת למערכת לחכות לקלט
-      return res.status(200).send('read=t-שלום, אני גמיני. אנא הקלידו את שאלתכם וסיימו בסולמית.=UserText'); 
+        // השמעת התשובה ושליחה חזרה להקלדה נוספת (כדי שלא יתנתק)
+        return res.status(200).send(`read=t-${textResponse}=UserText,yes,1,1,7,No,yes,no,type_text`);
+
+    } catch (error) {
+        console.error(error);
+        return res.status(200).send('read=t-אירעה שגיאה. נסו שוב.&go_to_folder=.');
     }
-
-    // 2. אם המשתמש הקליד משהו - שולחים לגוגל
-    // הערה: הקלדה בימות המשיח היא בדרך כלל מספרים, אלא אם מוגדרת המרת מקשים לאותיות
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-    
-    // מוסיפים הנחיה למודל שידע שמדובר בטקסט קצר או מספרים אם זה המצב
-    const result = await model.generateContent(userText);
-    const response = await result.response;
-    
-    let textResponse = response.text()
-        .replace(/\*/g, '')      // ניקוי כוכביות
-        .replace(/=/g, '-')      // החלפת שווה במקף (חובה!)
-        .replace(/&/g, 'ו')
-        .replace(/\n/g, '. ');
-
-    // 3. מחזירים תשובה ומבקשים את הקלט הבא
-    return res.status(200).send(`read=t-${textResponse}=UserText`);
-
-  } catch (error) {
-    console.error("Error:", error);
-    return res.status(200).send('read=t-אירעה שגיאה, נסו שוב.=UserText');
-  }
 };
