@@ -1,43 +1,46 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// קבלת מפתח ה-API משתני הסביבה (נגדיר זאת ב-Vercel)
+// קבלת המפתח
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
-export default async function handler(req, res) {
-  // ימות המשיח שולחים נתונים ב-GET או POST. נתמוך בשניהם.
+module.exports = async (req, res) => {
+  // בדיקה אם הבקשה הגיעה ב-GET או POST
   const query = req.method === 'POST' ? req.body : req.query;
 
-  // הפרמטר שמכיל את הטקסט שהמשתמש אמר. 
-  // בימות המשיח, כשמשתמשים בזיהוי דיבור, הטקסט מגיע בדרך כלל בפרמטר שמוגדר (למשל ApiAnswer)
-  // נניח שאנחנו מקבלים את הטקסט בפרמטר בשם 'text' או 'ApiAnswer'
-  let userText = query.text || query.ApiAnswer;
+  // קבלת הטקסט מהמשתמש. בימות המשיח, זיהוי דיבור חוזר לרוב ב-ApiAnswer
+  let userText = query.ApiAnswer || query.text;
 
-  // אם אין טקסט (כניסה ראשונה לשלוחה), נבקש מהמשתמש לדבר
-  if (!userText) {
-    // הפקודה read=t-משהו משמיעה טקסט (TTS).
-    // הפקודה הזו מבקשת קלט מסוג זיהוי דיבור (אם המודול תומך) או הקלטה.
-    // לצורך הפשטות, נחזיר הודעת פתיחה וניתן למערכת ימות המשיח לטפל בקליטה (הסבר בהמשך בהגדרות השלוחה).
-    return res.status(200).send('read=t-שלום, אני גמיני. על מה תרצו לדבר איתי היום?=val_name,yes,t,no'); 
-  }
+  // הדפסה ללוגים של Vercel לצורך דיבוג
+  console.log("Incoming request query:", query);
 
   try {
-    // אתחול המודל
+    // 1. מצב התחלה: אם אין טקסט (המשתמש רק נכנס לשלוחה)
+    if (!userText) {
+      console.log("No text provided, sending welcome message.");
+      // שולח הודעה ומבקש זיהוי דיבור לתוך המשתנה ApiAnswer
+      // val_name=ApiAnswer אומר למערכת לשמור את מה שהמשתמש אמר תחת השם הזה
+      return res.status(200).send('read=t-שלום, אני גמיני. על מה תרצו לדבר איתי היום?=ApiAnswer,yes,t,no');
+    }
+
+    // 2. המשתמש דיבר: שליחה לגוגל
+    console.log("User said:", userText);
     const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
-    // שליחת הטקסט ל-Gemini
     const result = await model.generateContent(userText);
     const response = await result.response;
     let textResponse = response.text();
 
-    // ניקוי הטקסט מתווים שיכולים לשבש את ימות המשיח (כמו מקפים כפולים או תווים מיוחדים מדי)
-    textResponse = textResponse.replace(/=/g, '-').replace(/&/g, 'ו');
+    console.log("Gemini response:", textResponse);
 
-    // שליחת התשובה חזרה לימות המשיח להקראה
-    // אנו משמיעים את התשובה ומבקשים קלט חדש מיד אחריה כדי להמשיך את השיחה
-    return res.status(200).send(`read=t-${textResponse}=val_name,yes,t,no`);
+    // ניקוי תווים בעייתיים לימות המשיח
+    textResponse = textResponse.replace(/=/g, '-').replace(/&/g, 'ו').replace(/\n/g, '. ');
+
+    // 3. החזרת התשובה
+    return res.status(200).send(`read=t-${textResponse}=ApiAnswer,yes,t,no`);
 
   } catch (error) {
-    console.error("Error talking to Gemini:", error);
-    return res.status(200).send('read=t-אירעה שגיאה בתקשורת עם הבינה המלאכותית. אנא נסו שנית.');
+    console.error("Critical Error:", error);
+    // במקרה של שגיאה, המערכת תקריא שגיאה במקום לנתק
+    return res.status(200).send('read=t-אירעה שגיאה פנימית במערכת, אנא נסו שוב מאוחר יותר.');
   }
-}
+};
