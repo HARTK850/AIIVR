@@ -1,34 +1,15 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+import { GoogleGenAI } from '@google/genai';
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
 
-async function retryGenerateContent(model, userText, retries = 3, delay = 5000) {
-    for (let i = 0; i < retries; i++) {
-        try {
-            const result = await model.generateContent(userText);
-            return result.response.text();
-        } catch (error) {
-            if (error.message.includes('429') && i < retries - 1) {
-                console.log(`Retrying after ${delay / 1000} seconds...`);
-                await new Promise(resolve => setTimeout(resolve, delay));
-            } else {
-                throw error;
-            }
-        }
-    }
-    throw new Error('Max retries exceeded');
-}
-
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
 
-    let userText = "";
+    let userText = '';
     if (req.method === 'POST' && req.body && typeof req.body.txt === 'string') {
         userText = req.body.txt.trim();
     } else if (req.method === 'GET' && req.query && typeof req.query.txt === 'string') {
         userText = req.query.txt.trim();
-    } else {
-        userText = ""; // ברירת מחדל למניעת TypeError
     }
 
     try {
@@ -36,8 +17,10 @@ module.exports = async (req, res) => {
             return res.send("read=t-אנא הקלידו את השאלה=txt,,,,,HebrewKeyboard,");
         }
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // מודל תקין
-        const textResponse = await retryGenerateContent(model, userText);
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // מודל תקין ועדכני 2025
+
+        const result = await model.generateContent(userText);
+        const textResponse = result.text();
 
         let cleanText = textResponse.replace(/[^A-Za-z0-9א-ת\s]/g, '');
         const words = cleanText.split(/\s+/).filter(w => w);
@@ -51,6 +34,6 @@ module.exports = async (req, res) => {
 
     } catch (error) {
         console.error("Error:", error.message);
-        return res.send("read=t-אירעה שגיאה (אולי מכסה מוצתה). נסו שוב מאוחר יותר.=txt,,,,,HebrewKeyboard,");
+        return res.send("read=t-אירעה שגיאה בשרת, נסו שוב.=txt,,,,,HebrewKeyboard,");
     }
-};
+}
