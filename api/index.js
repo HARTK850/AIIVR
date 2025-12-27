@@ -1,46 +1,45 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// קבלת המפתח
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
 module.exports = async (req, res) => {
-  // בדיקה אם הבקשה הגיעה ב-GET או POST
-  const query = req.method === 'POST' ? req.body : req.query;
+  // 1. חובה: הגדרת כותרת שמבהירה לימות המשיח שזה טקסט נקי בעברית
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
 
-  // קבלת הטקסט מהמשתמש. בימות המשיח, זיהוי דיבור חוזר לרוב ב-ApiAnswer
+  const query = req.method === 'POST' ? req.body : req.query;
+  
+  // קליטת הטקסט (תומך גם בפרמטר שחוזר מזיהוי דיבור וגם בבדיקות ידניות)
   let userText = query.ApiAnswer || query.text;
 
-  // הדפסה ללוגים של Vercel לצורך דיבוג
-  console.log("Incoming request query:", query);
+  console.log("Request received. Text:", userText);
 
   try {
-    // 1. מצב התחלה: אם אין טקסט (המשתמש רק נכנס לשלוחה)
+    // 2. אם זו הכניסה הראשונה לשלוחה (אין טקסט)
     if (!userText) {
-      console.log("No text provided, sending welcome message.");
-      // שולח הודעה ומבקש זיהוי דיבור לתוך המשתנה ApiAnswer
-      // val_name=ApiAnswer אומר למערכת לשמור את מה שהמשתמש אמר תחת השם הזה
-      return res.status(200).send('read=t-שלום, אני גמיני. על מה תרצו לדבר איתי היום?=ApiAnswer,yes,t,no');
+      console.log("Welcome message");
+      // שולחים רק את הטקסט להקראה. ההקלטה תתבצע בגלל ההגדרות ב-ext.ini
+      return res.status(200).send('read=t-שלום, אני גמיני. על מה תרצו לדבר איתי?'); 
     }
 
-    // 2. המשתמש דיבר: שליחה לגוגל
-    console.log("User said:", userText);
+    // 3. יש טקסט מהמשתמש - שליחה לגוגל
     const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
     const result = await model.generateContent(userText);
     const response = await result.response;
-    let textResponse = response.text();
+    
+    // ניקוי הטקסט מתשובת ה-AI
+    let textResponse = response.text()
+        .replace(/\*/g, '')      // הסרת כוכביות
+        .replace(/=/g, '-')      // החלפת שווה במקף (קריטי לימות המשיח!)
+        .replace(/&/g, 'ו')      // החלפת & ב'ו'
+        .replace(/\n/g, '. ');   // החלפת ירידת שורה בנקודה
 
-    console.log("Gemini response:", textResponse);
+    console.log("Gemini reply:", textResponse);
 
-    // ניקוי תווים בעייתיים לימות המשיח
-    textResponse = textResponse.replace(/=/g, '-').replace(/&/g, 'ו').replace(/\n/g, '. ');
-
-    // 3. החזרת התשובה
-    return res.status(200).send(`read=t-${textResponse}=ApiAnswer,yes,t,no`);
+    // שליחת התשובה
+    return res.status(200).send(`read=t-${textResponse}`);
 
   } catch (error) {
-    console.error("Critical Error:", error);
-    // במקרה של שגיאה, המערכת תקריא שגיאה במקום לנתק
-    return res.status(200).send('read=t-אירעה שגיאה פנימית במערכת, אנא נסו שוב מאוחר יותר.');
+    console.error("Error:", error);
+    return res.status(200).send('read=t-אירעה שגיאה, אנא נסו שוב.');
   }
 };
